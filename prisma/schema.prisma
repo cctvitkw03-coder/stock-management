@@ -1,0 +1,594 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===========================
+// USERS & AUTH
+// ===========================
+
+model User {
+  id          String   @id @default(uuid())
+  employeeId  String   @unique @map("employee_id")
+  name        String
+  email       String?  @unique
+  phone       String?
+  departmentId String?  @map("department_id")
+  branchId    String   @map("branch_id")
+  roleId      String   @map("role_id")
+  status      UserStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  department  Department? @relation(fields: [departmentId], references: [id])
+  branch      Branch      @relation(fields: [branchId], references: [id])
+  role        Role        @relation(fields: [roleId], references: [id])
+
+  receiptsCreated     Receipt[]         @relation("ReceiptCreatedBy")
+  issueRequestsCreated IssueRequest[]   @relation("IssueCreatedBy")
+  issueRequestsFor    IssueRequest[]    @relation("IssueIssuedTo")
+  returnsCreated      Return[]          @relation("ReturnCreatedBy")
+  returnsBy           Return[]          @relation("ReturnedBy")
+  returnsReceived     Return[]          @relation("ReturnReceivedBy")
+  transfersSent       Transfer[]        @relation("TransferSender")
+  transfersReceived   Transfer[]        @relation("TransferReceiver")
+  repairsCreated      Repair[]          @relation("RepairCreatedBy")
+  signatures          Signature[]
+  auditLogs           AuditLog[]
+  currentAssets       Asset[]           @relation("AssetCurrentUser")
+
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  permissions Json?
+  users       User[]
+
+  @@map("roles")
+}
+
+model Department {
+  id     String @id @default(uuid())
+  name   String @unique
+  code   String? @unique
+  users  User[]
+
+  @@map("departments")
+}
+
+// ===========================
+// BRANCHES & WAREHOUSES
+// ===========================
+
+model Branch {
+  id          String      @id @default(uuid())
+  code        String      @unique
+  name        String
+  address     String?
+  phone       String?
+  status      Boolean     @default(true)
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  users       User[]
+  warehouses  Warehouse[]
+  issueRequests IssueRequest[]
+  assetsLocated Asset[]   @relation("AssetCurrentBranch")
+
+  @@map("branches")
+}
+
+model Warehouse {
+  id          String   @id @default(uuid())
+  branchId    String   @map("branch_id")
+  name        String
+  description String?
+  status      Boolean  @default(true)
+
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  receipts    Receipt[]
+  stockItems  StockItem[]
+  assetsHeld  Asset[]   @relation("AssetWarehouse")
+  transfersFrom Transfer[] @relation("TransferFrom")
+  transfersTo   Transfer[] @relation("TransferTo")
+
+  @@map("warehouses")
+}
+
+// ===========================
+// CATEGORIES & ITEMS
+// ===========================
+
+model Category {
+  id          String        @id @default(uuid())
+  name        String
+  code        String?       @unique
+  type        CategoryType  @default(EQUIPMENT)
+  description String?
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  items       Item[]
+
+  @@map("categories")
+}
+
+enum CategoryType {
+  EQUIPMENT    // อุปกรณ์
+  CONSUMABLE   // วัสดุสิ้นเปลือง
+  SPARE_PART   // อะไหล่
+  TOOL         // เครื่องมือช่าง
+}
+
+model Item {
+  id              String        @id @default(uuid())
+  itemCode        String        @unique @map("item_code")
+  name            String
+  categoryId      String        @map("category_id")
+  brand           String?
+  model           String?
+  unit            String        @default("ชิ้น")
+  trackingType    TrackingType  @default(QUANTITY) @map("tracking_type")
+  minimumStock    Int           @default(0) @map("minimum_stock")
+  description     String?
+  imageUrl        String?       @map("image_url")
+  status          Boolean       @default(true)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  category        Category      @relation(fields: [categoryId], references: [id])
+  assets          Asset[]
+  stockItems      StockItem[]
+  receiptItems    ReceiptItem[]
+  issueItems      IssueItem[]
+  returnItems     ReturnItem[]
+  transferItems   TransferItem[]
+  stockTransactions StockTransaction[]
+
+  @@map("items")
+}
+
+enum TrackingType {
+  SERIAL    // ติดตามราย Serial Number
+  QUANTITY  // ติดตามแค่จำนวน
+}
+
+// ===========================
+// ASSETS (อุปกรณ์รายชิ้น มี Serial)
+// ===========================
+
+model Asset {
+  id              String      @id @default(uuid())
+  itemId          String      @map("item_id")
+  assetCode       String      @unique @map("asset_code")
+  serialNumber    String?     @unique @map("serial_number")
+  assetNumber     String?     @map("asset_number")
+  purchasePrice   Float?      @map("purchase_price")
+  purchaseDate    DateTime?   @map("purchase_date")
+  warrantyExpiry  DateTime?   @map("warranty_expiry")
+  usageLifeYears  Int?        @map("usage_life_years")
+  status          AssetStatus @default(IN_STOCK)
+  warehouseId     String?     @map("warehouse_id")
+  currentBranchId String?     @map("current_branch_id")
+  currentUserId   String?     @map("current_user_id")
+  currentLocation String?     @map("current_location")
+  imageUrl        String?     @map("image_url")
+  notes           String?
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  item            Item        @relation(fields: [itemId], references: [id])
+  warehouse       Warehouse?  @relation("AssetWarehouse", fields: [warehouseId], references: [id])
+  currentBranch   Branch?     @relation("AssetCurrentBranch", fields: [currentBranchId], references: [id])
+  currentUser     User?       @relation("AssetCurrentUser", fields: [currentUserId], references: [id])
+
+  issueItems      IssueItem[]
+  returnItems     ReturnItem[]
+  transferItems   TransferItem[]
+  repairs         Repair[]
+
+  @@map("assets")
+}
+
+enum AssetStatus {
+  IN_STOCK        // อยู่ในสต๊อก
+  READY           // พร้อมจ่าย
+  IN_USE          // เบิกใช้งาน
+  BORROWED        // ยืม
+  PENDING_RETURN  // รอคืน
+  IN_REPAIR       // ส่งซ่อม
+  DAMAGED         // ชำรุด
+  LOST            // สูญหาย
+  TRANSFERRED     // โอนย้าย
+  DISPOSED        // จำหน่าย
+}
+
+// ===========================
+// STOCK (สต๊อกตาม Warehouse)
+// ===========================
+
+model StockItem {
+  id          String    @id @default(uuid())
+  itemId      String    @map("item_id")
+  warehouseId String    @map("warehouse_id")
+  quantity    Int       @default(0)
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  item        Item      @relation(fields: [itemId], references: [id])
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([itemId, warehouseId])
+  @@map("stock_items")
+}
+
+model StockTransaction {
+  id            String              @id @default(uuid())
+  itemId        String              @map("item_id")
+  type          StockTransactionType
+  quantity      Int
+  referenceType String?             @map("reference_type")
+  referenceId   String?             @map("reference_id")
+  createdBy     String              @map("created_by")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  notes         String?
+
+  item          Item                @relation(fields: [itemId], references: [id])
+
+  @@map("stock_transactions")
+}
+
+enum StockTransactionType {
+  RECEIPT    // รับเข้า
+  ISSUE      // เบิกออก
+  RETURN     // คืนเข้า
+  TRANSFER_OUT // โอนออก
+  TRANSFER_IN  // โอนเข้า
+  ADJUSTMENT   // ปรับยอด
+  DISPOSE      // จำหน่าย
+}
+
+// ===========================
+// RECEIPTS (ใบรับเข้า)
+// ===========================
+
+model Receipt {
+  id              String        @id @default(uuid())
+  documentNo      String        @unique @map("document_no")
+  warehouseId     String        @map("warehouse_id")
+  sourceType      SourceType    @map("source_type")
+  supplierId      String?       @map("supplier_id")
+  sourceBranchId  String?       @map("source_branch_id")
+  poNo            String?       @map("po_no")
+  invoiceNo       String?       @map("invoice_no")
+  deliveryNo      String?       @map("delivery_no")
+  status          DocumentStatus @default(DRAFT)
+  signatureMethod SignatureMethod? @map("signature_method")
+  notes           String?
+  createdBy       String        @map("created_by")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  warehouse       Warehouse     @relation(fields: [warehouseId], references: [id])
+  supplier        Supplier?     @relation(fields: [supplierId], references: [id])
+  creator         User          @relation("ReceiptCreatedBy", fields: [createdBy], references: [id])
+  items           ReceiptItem[]
+
+  @@map("receipts")
+}
+
+model ReceiptItem {
+  id          String   @id @default(uuid())
+  receiptId   String   @map("receipt_id")
+  itemId      String   @map("item_id")
+  quantity    Int
+  serialNumber String? @map("serial_number")
+  unitPrice   Float?   @map("unit_price")
+  condition   String?
+  notes       String?
+
+  receipt     Receipt  @relation(fields: [receiptId], references: [id])
+  item        Item     @relation(fields: [itemId], references: [id])
+
+  @@map("receipt_items")
+}
+
+// ===========================
+// ISSUE REQUESTS (ใบเบิก)
+// ===========================
+
+model IssueRequest {
+  id              String          @id @default(uuid())
+  documentNo      String          @unique @map("document_no")
+  requesterId     String          @map("requester_id")
+  issuedToId      String          @map("issued_to_id")
+  branchId        String          @map("branch_id")
+  location        String?
+  purpose         String?
+  status          DocumentStatus  @default(DRAFT)
+  signatureMethod SignatureMethod? @map("signature_method")
+  approverId      String?         @map("approver_id")
+  issuerId        String?         @map("issuer_id")
+  notes           String?
+  createdBy       String          @map("created_by")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  requester       User            @relation("IssueCreatedBy", fields: [requesterId], references: [id])
+  issuedTo        User            @relation("IssueIssuedTo", fields: [issuedToId], references: [id])
+  branch          Branch          @relation(fields: [branchId], references: [id])
+  items           IssueItem[]
+
+  @@map("issue_requests")
+}
+
+model IssueItem {
+  id             String       @id @default(uuid())
+  issueRequestId String       @map("issue_request_id")
+  itemId         String       @map("item_id")
+  quantity       Int
+  assetId        String?      @map("asset_id")
+  notes          String?
+
+  issueRequest   IssueRequest @relation(fields: [issueRequestId], references: [id])
+  item           Item         @relation(fields: [itemId], references: [id])
+  asset          Asset?       @relation(fields: [assetId], references: [id])
+
+  @@map("issue_items")
+}
+
+// ===========================
+// RETURNS (ใบคืน)
+// ===========================
+
+model Return {
+  id              String         @id @default(uuid())
+  documentNo      String         @unique @map("document_no")
+  returnedById    String         @map("returned_by_id")
+  receivedById    String         @map("received_by_id")
+  status          DocumentStatus @default(DRAFT)
+  signatureMethod SignatureMethod? @map("signature_method")
+  notes           String?
+  createdBy       String         @map("created_by")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  returnedBy      User           @relation("ReturnedBy", fields: [returnedById], references: [id])
+  receivedBy      User           @relation("ReturnReceivedBy", fields: [receivedById], references: [id])
+  creator         User           @relation("ReturnCreatedBy", fields: [createdBy], references: [id])
+  items           ReturnItem[]
+
+  @@map("returns")
+}
+
+model ReturnItem {
+  id              String  @id @default(uuid())
+  returnId        String  @map("return_id")
+  itemId          String  @map("item_id")
+  assetId         String? @map("asset_id")
+  quantity        Int
+  conditionBefore String? @map("condition_before")
+  conditionAfter  String? @map("condition_after")
+  isDamaged       Boolean @default(false) @map("is_damaged")
+  notes           String?
+
+  return          Return  @relation(fields: [returnId], references: [id])
+  item            Item    @relation(fields: [itemId], references: [id])
+  asset           Asset?  @relation(fields: [assetId], references: [id])
+
+  @@map("return_items")
+}
+
+// ===========================
+// TRANSFERS (ใบโอนย้าย)
+// ===========================
+
+model Transfer {
+  id              String         @id @default(uuid())
+  documentNo      String         @unique @map("document_no")
+  fromWarehouseId String         @map("from_warehouse_id")
+  toWarehouseId   String         @map("to_warehouse_id")
+  senderId        String         @map("sender_id")
+  receiverId      String         @map("receiver_id")
+  reason          String?
+  status          TransferStatus @default(PENDING)
+  signatureMethod SignatureMethod? @map("signature_method")
+  notes           String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  fromWarehouse   Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse     Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
+  sender          User           @relation("TransferSender", fields: [senderId], references: [id])
+  receiver        User           @relation("TransferReceiver", fields: [receiverId], references: [id])
+  items           TransferItem[]
+
+  @@map("transfers")
+}
+
+enum TransferStatus {
+  PENDING     // รอโอน
+  IN_TRANSIT  // กำลังโอน
+  RECEIVED    // รับแล้ว
+  COMPLETED   // ปิดรายการ
+  CANCELLED   // ยกเลิก
+}
+
+model TransferItem {
+  id          String   @id @default(uuid())
+  transferId  String   @map("transfer_id")
+  itemId      String   @map("item_id")
+  assetId     String?  @map("asset_id")
+  quantity    Int
+  notes       String?
+
+  transfer    Transfer @relation(fields: [transferId], references: [id])
+  item        Item     @relation(fields: [itemId], references: [id])
+  asset       Asset?   @relation(fields: [assetId], references: [id])
+
+  @@map("transfer_items")
+}
+
+// ===========================
+// REPAIRS (ซ่อม)
+// ===========================
+
+model Repair {
+  id              String       @id @default(uuid())
+  documentNo      String       @unique @map("document_no")
+  assetId         String       @map("asset_id")
+  problem         String
+  reportedById    String       @map("reported_by_id")
+  repairShop      String?      @map("repair_shop")
+  cost            Float?
+  isWarranty      Boolean      @default(false) @map("is_warranty")
+  sentAt          DateTime?    @map("sent_at")
+  receivedAt      DateTime?    @map("received_at")
+  result          String?
+  status          RepairStatus @default(REPORTED)
+  notes           String?
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  asset           Asset        @relation(fields: [assetId], references: [id])
+  reportedBy      User         @relation("RepairCreatedBy", fields: [reportedById], references: [id])
+
+  @@map("repairs")
+}
+
+enum RepairStatus {
+  REPORTED      // แจ้งซ่อม
+  PENDING_CHECK // รอตรวจสอบ
+  SENT          // ส่งซ่อม
+  IN_REPAIR     // กำลังซ่อม
+  RECEIVED      // รับกลับ
+  INSPECTING    // ตรวจสอบ
+  COMPLETED     // ใช้งานได้
+  IRREPARABLE   // ซ่อมไม่ได้
+}
+
+// ===========================
+// DOCUMENTS & SIGNATURES
+// ===========================
+
+model Document {
+  id              String       @id @default(uuid())
+  documentType    String       @map("document_type")   // RECEIPT | ISSUE | RETURN | TRANSFER | REPAIR
+  referenceId     String       @map("reference_id")    // ID ของ document นั้น ๆ (polymorphic)
+  filePath        String       @map("file_path")
+  fileName        String       @map("file_name")
+  fileSize        Int?         @map("file_size")
+  version         Int          @default(1)
+  status          String       @default("ACTIVE")
+  uploadedBy      String       @map("uploaded_by")
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  // ไม่ใช้ Prisma relation โดยตรง เพราะ polymorphic
+  // ค้นหาผ่าน documentType + referenceId ใน application code
+
+  @@index([documentType, referenceId])
+  @@map("documents")
+}
+
+model Signature {
+  id              String          @id @default(uuid())
+  documentType    String          @map("document_type")  // RECEIPT | ISSUE | RETURN | TRANSFER
+  referenceId     String          @map("reference_id")   // ID ของ document (polymorphic)
+  signerId        String          @map("signer_id")
+  signerRole      String          @map("signer_role")    // APPROVER | ISSUER | RECEIVER | SENDER
+  method          SignatureMethod
+  signatureImage  String?         @map("signature_image")
+  ipAddress       String?         @map("ip_address")
+  deviceInfo      String?         @map("device_info")
+  signedAt        DateTime?       @map("signed_at")
+  status          SignatureStatus @default(PENDING)
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  signer          User            @relation(fields: [signerId], references: [id])
+
+  @@index([documentType, referenceId])
+  @@map("signatures")
+}
+
+enum SignatureMethod {
+  MANUAL   // เซ็นมือ
+  DIGITAL  // เซ็นดิจิทัล
+}
+
+enum SignatureStatus {
+  PENDING  // รอเซ็น
+  SIGNED   // เซ็นแล้ว
+  REJECTED // ปฏิเสธ
+}
+
+// ===========================
+// SUPPLIERS
+// ===========================
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  code      String?  @unique
+  contact   String?
+  phone     String?
+  email     String?
+  address   String?
+  status    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  receipts  Receipt[]
+
+  @@map("suppliers")
+}
+
+// ===========================
+// AUDIT LOG
+// ===========================
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  action      String
+  tableName   String   @map("table_name")
+  recordId    String?  @map("record_id")
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  ipAddress   String?  @map("ip_address")
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// ===========================
+// ENUMS (SHARED)
+// ===========================
+
+enum DocumentStatus {
+  DRAFT           // ร่าง
+  PENDING_SIGN    // รอเซ็น
+  PARTIALLY_SIGNED // เซ็นบางส่วน
+  FULLY_SIGNED    // เซ็นครบ
+  COMPLETED       // สมบูรณ์
+  CANCELLED       // ยกเลิก
+}
+
+enum SourceType {
+  SUPPLIER         // ซื้อจาก Supplier
+  BRANCH           // โอนจากสาขา
+  HQ               // สำนักงานใหญ่
+  SELF_PURCHASE    // ซื้อเอง
+  RETURN           // รับคืน
+  TRANSFER         // รับโอน
+  OTHER            // อื่น ๆ
+}
