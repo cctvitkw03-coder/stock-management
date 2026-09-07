@@ -7,7 +7,6 @@ dotenv.config()
 // DATABASE_URL (port 6543, pgbouncer) ใช้สำหรับ runtime queries
 
 export default defineConfig({
-  earlyAccess: true,
   schema: 'prisma/schema.prisma',
   datasource: {
     url: process.env.DIRECT_URL as string,
